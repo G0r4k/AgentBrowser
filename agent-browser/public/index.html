@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🤖 AgentBrowser — Panel de Observación</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #0b74ff;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); }
+  .status-dot.live { background: var(--green); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  #urlbar { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn:hover { filter: brightness(1.15); }
+  .btn.secondary { background: var(--border); color: var(--text); }
+  .fps { font-size: 12px; color: var(--muted); min-width: 70px; text-align: right; }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr 380px; gap: 12px; padding: 12px; min-height: 0; }
+  .left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  .viewer { flex: 1; position: relative; background: #000; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 0; }
+  .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .viewer .placeholder { color: var(--muted); font-size: 14px; }
+  .rec-badge { position: absolute; top: 10px; left: 10px; background: rgba(248,81,73,.9); color:#fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; display: flex; align-items: center; gap: 6px; }
+  .rec-badge::before { content:''; width:7px; height:7px; border-radius:50%; background:#fff; animation: pulse 1s infinite; }
+
+  .thumbnails { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; }
+  .thumb { flex: 0 0 auto; width: 150px; height: 94px; border-radius: 8px; border: 2px solid var(--border); cursor: pointer; overflow: hidden; position: relative; background: #000; transition: border-color .2s; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .thumb.active { border-color: var(--accent); }
+  .thumb .t-label { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.65); font-size: 9px; padding: 2px 5px; color: #cfe3ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .right { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 8px; }
+
+  #activity { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+  .act { display: flex; gap: 8px; font-size: 12.5px; padding: 6px 8px; border-radius: 8px; background: var(--bg); border-left: 3px solid var(--muted); animation: slidein .25s ease-out; }
+  @keyframes slidein { from { opacity: 0; transform: translateY(6px);} to { opacity:1; transform:none;} }
+  .act.action { border-left-color: var(--accent); }
+  .act.thinking { border-left-color: var(--purple); color: var(--purple); }
+  .act.result { border-left-color: var(--green); }
+  .act.error { border-left-color: var(--red); color: var(--red); }
+  .act.info { border-left-color: var(--muted); color: var(--muted); }
+  .act .time { color: var(--muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat { background: var(--bg); border-radius: 8px; padding: 8px; text-align: center; }
+  .stat b { font-size: 18px; display: block; }
+  .stat span { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+
+  .cursor-info { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+  #cursorXY { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 AgentBrowser <span style="color:var(--muted);font-weight:400;font-size:12px">· navegador para agentes</span></h1>
+  <div class="status-dot" id="statusDot"></div>
+  <input id="urlbar" placeholder="https://…" readonly />
+  <button class="btn" id="demoBtn">▶ Ejecutar agente (demo)</button>
+  <button class="btn secondary" id="pauseBtn">⏸ Pausar</button>
+  <div class="fps" id="fps">— fps</div>
+</header>
+
+<main>
+  <div class="left">
+    <div class="viewer">
+      <div class="rec-badge">EN VIVO</div>
+      <img id="liveFrame" alt="" style="display:none" />
+      <div class="placeholder" id="placeholder">Esperando fotogramas del navegador…</div>
+    </div>
+    <div class="card" style="padding:8px 12px">
+      <h2 style="margin-bottom:6px">🗂 Miniaturas recientes</h2>
+      <div class="thumbnails" id="thumbs"></div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="card">
+      <h2>📊 Estado</h2>
+      <div class="stats">
+        <div class="stat"><b id="stActions">0</b><span>Acciones</span></div>
+        <div class="stat"><b id="stFps">0</b><span>FPS</span></div>
+        <div class="stat"><b id="stClients">0</b><span>Espectadores</span></div>
+      </div>
+      <div class="cursor-info" style="margin-top:10px">
+        <span>🖱 Mouse virtual:</span>
+        <span id="cursorXY">(0, 0)</span>
+      </div>
+    </div>
+    <div class="card" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <h2>🧠 Actividad del agente en tiempo real</h2>
+      <div id="activity"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const liveFrame = document.getElementById('liveFrame');
+  const placeholder = document.getElementById('placeholder');
+  const statusDot = document.getElementById('statusDot');
+  const activity = document.getElementById('activity');
+  const thumbs = document.getElementById('thumbs');
+  const urlbar = document.getElementById('urlbar');
+  const stActions = document.getElementById('stActions');
+  const stFps = document.getElementById('stFps');
+  const stClients = document.getElementById('stClients');
+  const cursorXY = document.getElementById('cursorXY');
+  const fpsEl = document.getElementById('fps');
+
+  let frameCount = 0, actionCount = 0, lastUrl = '';
+  setInterval(() => { stFps.textContent = fpsEl.textContent = frameCount; frameCount = 0; }, 1000);
+
+  // ---- WebSocket -----------------------------------------------------------
+  let ws;
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onopen = () => statusDot.classList.add('live');
+    ws.onclose = () => { statusDot.classList.remove('live'); setTimeout(connect, 1500); };
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.kind === 'hello') {
+        (msg.log || []).forEach(addLog);
+        updateCursor(msg.cursor);
+      } else if (msg.kind === 'frame') {
+        showFrame(msg.data);
+      } else if (msg.kind === 'log') {
+        addLog(msg.entry);
+        if (msg.entry.type === 'action') actionCount++;
+        stActions.textContent = actionCount;
+        if (msg.entry.message && /Navegando a|Navegar a/.test(msg.entry.message)) {
+          const m = msg.entry.message.match(/(?:a|Navegando a):\s*(\S+)/i) || msg.entry.message.match(/Navegar a\s+(\S+)/i);
+          if (m && m[1] !== lastUrl) { lastUrl = m[1]; urlbar.value = m[1]; }
+        }
+      }
+    };
+  }
+  connect();
+
+  // ---- Frames + miniaturas --------------------------------------------------
+  const thumbHistory = [];
+  let lastThumbTs = 0;
+  function showFrame(b64) {
+    const src = `data:image/jpeg;base64,${b64}`;
+    liveFrame.src = src;
+    liveFrame.style.display = 'block';
+    placeholder.style.display = 'none';
+    frameCount++;
+    updateCursorFromPage();
+    // Una miniatura nueva cada ~2 segundos
+    const now = Date.now();
+    if (now - lastThumbTs > 2000) {
+      lastThumbTs = now;
+      addThumb(src, now);
+    }
+  }
+  function addThumb(src, ts) {
+    const t = document.createElement('div');
+    t.className = 'thumb active';
+    t.innerHTML = `<img src="${src}"/><div class="t-label">${new Date(ts).toLocaleTimeString()}</div>`;
+    document.querySelectorAll('.thumb.active').forEach(e => e.classList.remove('active'));
+    thumbs.prepend(t);
+    t.onclick = () => { liveFrame.src = src; document.querySelectorAll('.thumb').forEach(e=>e.classList.remove('active')); t.classList.add('active'); };
+    thumbHistory.unshift(t);
+    if (thumbHistory.length > 12) thumbs.removeChild(thumbHistory.pop());
+  }
+
+  function updateCursor(c) { if (c) cursorXY.textContent = `(${Math.round(c.x)}, ${Math.round(c.y)})`; }
+  async function updateCursorFromPage() {
+    try {
+      const r = await fetch('/api/state');
+      const s = await r.json();
+      updateCursor(s.cursor);
+      stClients.textContent = s.clients;
+    } catch (e) {}
+  }
+
+  function addLog(entry) {
+    const div = document.createElement('div');
+    div.className = `act ${entry.type}`;
+    const time = new Date(entry.ts).toLocaleTimeString();
+    div.innerHTML = `<span class="time">${time}</span><span>${escapeHtml(entry.message)}</span>`;
+    activity.prepend(div);
+    while (activity.children.length > 120) activity.removeChild(activity.lastChild);
+  }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // ---- Controles ------------------------------------------------------------
+  document.getElementById('demoBtn').onclick = () => fetch('/api/demo/start', { method: 'POST' });
+  const pauseBtn = document.getElementById('pauseBtn');
+  pauseBtn.onclick = async () => {
+    const r = await fetch('/api/pause', { method: 'POST' }).then(r => r.json());
+    pauseBtn.textContent = r.paused ? '▶ Reanudar' : '⏸ Pausar';
+  };
+})();
+</script>
+</body>
+</html>
